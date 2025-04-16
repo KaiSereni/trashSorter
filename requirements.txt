@@ -8,3 +8,4 @@ scikit-image
 scikit-learn
 tqdm
 kagglehub
+flask
