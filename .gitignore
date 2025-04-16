@@ -1,0 +1,5 @@
+/.venv/
+/test_images/
+*.png
+*.jpg
+*.pth
