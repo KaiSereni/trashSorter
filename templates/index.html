@@ -1,0 +1,185 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trash Sorter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        #startBtn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 24px;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        #startBtn:hover {
+            background-color: #45a049;
+        }
+        #videoFeed, #placeholderImg {
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        #prediction {
+            font-size: 20px;
+            margin: 20px 0;
+            color: #333;
+        }
+        #timer {
+            font-size: 18px;
+            color: #e74c3c;
+            margin: 10px 0;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Trash Sorter</h1>
+        
+        <div id="scannerControls">
+            <button id="startBtn">Begin Scan</button>
+            <div id="timer" class="hidden">Time remaining: 15s</div>
+        </div>
+        
+        <div id="scannerView">
+            <img id="placeholderImg" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgZmlsbD0iI2YyZjJmMiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIGZpbGw9IiM2NjY2NjYiPkNhbWVyYSBGZWVkIFdpbGwgQXBwZWFyIEhlcmU8L3RleHQ+PC9zdmc+" alt="Camera Placeholder">
+            <div id="videoContainer" class="hidden">
+                <img id="videoFeed" src="/video_feed" alt="Camera Feed">
+            </div>
+            <div id="prediction"></div>
+            <div id="cameraStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const videoContainer = document.getElementById('videoContainer');
+        const videoFeed = document.getElementById('videoFeed');
+        const placeholderImg = document.getElementById('placeholderImg');
+        const predictionDiv = document.getElementById('prediction');
+        const timerDiv = document.getElementById('timer');
+        const cameraStatusDiv = document.getElementById('cameraStatus');
+        
+        let scanInterval = null;
+        let timerInterval = null;
+        let timeLeft = 15;
+        
+        startBtn.addEventListener('click', startScanning);
+        
+        // Add event listeners to detect if video is working
+        videoFeed.addEventListener('load', () => {
+            cameraStatusDiv.textContent = "Camera feed connected";
+            cameraStatusDiv.style.color = "green";
+        });
+        
+        videoFeed.addEventListener('error', (e) => {
+            cameraStatusDiv.textContent = "Error loading camera feed. Check console for details.";
+            cameraStatusDiv.style.color = "red";
+            console.error("Video feed error:", e);
+        });
+        
+        function startScanning() {
+            // Reset camera status
+            cameraStatusDiv.textContent = "Connecting to camera...";
+            cameraStatusDiv.style.color = "blue";
+            
+            // Call API to start scanning
+            fetch('/start_scan')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "started") {
+                        // Show camera feed, hide placeholder
+                        videoContainer.classList.remove('hidden');
+                        placeholderImg.classList.add('hidden');
+                        startBtn.disabled = true;
+                        
+                        // Force reload the video feed src to ensure a fresh connection
+                        const timestamp = new Date().getTime();
+                        videoFeed.src = `/video_feed?t=${timestamp}`;
+                        
+                        // Start timer display
+                        timeLeft = 15;
+                        timerDiv.textContent = `Time remaining: ${timeLeft}s`;
+                        timerDiv.classList.remove('hidden');
+                        
+                        timerInterval = setInterval(() => {
+                            timeLeft--;
+                            timerDiv.textContent = `Time remaining: ${timeLeft}s`;
+                            
+                            if (timeLeft <= 0) {
+                                stopScanning();
+                            }
+                        }, 1000);
+                        
+                        // Poll status for updates
+                        scanInterval = setInterval(checkStatus, 500);
+                    }
+                })
+                .catch(error => {
+                    cameraStatusDiv.textContent = "Failed to start scanning: " + error;
+                    cameraStatusDiv.style.color = "red";
+                });
+        }
+        
+        function stopScanning() {
+            // Clear intervals
+            clearInterval(scanInterval);
+            clearInterval(timerInterval);
+            
+            // Call API to stop scanning
+            fetch('/stop_scan')
+                .then(response => response.json())
+                .then(data => {
+                    // Hide camera feed, show placeholder
+                    videoContainer.classList.add('hidden');
+                    placeholderImg.classList.remove('hidden');
+                    startBtn.disabled = false;
+                    timerDiv.classList.add('hidden');
+                });
+        }
+        
+        function checkStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update prediction display
+                    if (data.prediction.class) {
+                        predictionDiv.innerHTML = `<strong>${data.prediction.class}</strong>: ${data.prediction.prob.toFixed(1)}%<br>Place in the <strong>${data.prediction.bin}</strong> bin`;
+                    }
+                    
+                    // Check if scanning has stopped
+                    if (!data.scanning) {
+                        stopScanning();
+                    }
+                });
+        }
+    </script>
+</body>
+</html>
+        
