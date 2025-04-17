@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import kagglehub
 
-# Set random seeds for reproducibility
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -22,20 +21,16 @@ def set_seed(seed=42):
 
 set_seed()
 
-# Download the dataset
 print("Downloading dataset...")
 dataset_path = kagglehub.dataset_download("mostafaabla/garbage-classification")
 print(f"Dataset downloaded to: {dataset_path}")
 
-# Set the path to the garbage classification folder
 garbage_path = os.path.join(dataset_path, "garbage_classification")
 
-# List the classes (folders in the garbage_classification directory)
 classes = sorted([d for d in os.listdir(garbage_path) if os.path.isdir(os.path.join(garbage_path, d))])
 num_classes = len(classes)
 print(f"Found {num_classes} classes: {classes}")
 
-# Custom Dataset class
 class GarbageDataset(Dataset):
     def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
@@ -66,11 +61,9 @@ class GarbageDataset(Dataset):
             return image, label
         except Exception as e:
             print(f"Error loading image {img_path}: {e}")
-            # Return a blank image and the label if there's an error
             blank_image = torch.zeros(3, 224, 224)
             return blank_image, label
 
-# Data transformations
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(),
@@ -86,11 +79,9 @@ test_transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-# Create dataset
 print("Creating dataset...")
 full_dataset = GarbageDataset(root_dir=garbage_path, transform=train_transform)
 
-# Split dataset
 train_size = int(0.8 * len(full_dataset))
 val_size = int(0.1 * len(full_dataset))
 test_size = len(full_dataset) - train_size - val_size
@@ -99,48 +90,38 @@ train_dataset, val_dataset, test_dataset = random_split(
     full_dataset, [train_size, val_size, test_size]
 )
 
-# Apply different transforms to validation and test datasets
 val_dataset.dataset = GarbageDataset(root_dir=garbage_path, transform=test_transform)
 test_dataset.dataset = GarbageDataset(root_dir=garbage_path, transform=test_transform)
 
-# Create data loaders - CRITICAL FIX: Set num_workers=0 to avoid multiprocessing issues
 batch_size = 32
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
-# Define model
 class GarbageCNN(nn.Module):
     def __init__(self, num_classes):
         super(GarbageCNN, self).__init__()
         
-        # Load a pretrained ResNet-18 model with updated weights parameter (fix for deprecated warning)
         self.model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         
-        # Freeze the early layers
         for param in list(self.model.parameters())[:-4]:
             param.requires_grad = False
             
-        # Replace the final fully connected layer
         num_features = self.model.fc.in_features
         self.model.fc = nn.Linear(num_features, num_classes)
         
     def forward(self, x):
         return self.model(x)
 
-# Check if CUDA is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create the model
 model = GarbageCNN(num_classes=num_classes).to(device)
 
-# Define loss function and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
-# Training function
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs=10):
     train_losses = []
     val_losses = []
@@ -148,7 +129,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     val_accuracies = []
     
     for epoch in range(num_epochs):
-        # Training phase
         model.train()
         running_loss = 0.0
         correct = 0
@@ -158,18 +138,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         for inputs, labels in train_bar:
             inputs, labels = inputs.to(device), labels.to(device)
             
-            # Zero the parameter gradients
             optimizer.zero_grad()
             
-            # Forward pass
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             
-            # Backward pass and optimize
             loss.backward()
             optimizer.step()
             
-            # Statistics
             running_loss += loss.item() * inputs.size(0)
             _, predicted = outputs.max(1)
             total += labels.size(0)
@@ -182,7 +158,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         train_losses.append(epoch_train_loss)
         train_accuracies.append(epoch_train_acc)
         
-        # Validation phase
         model.eval()
         running_loss = 0.0
         correct = 0
@@ -193,11 +168,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             for inputs, labels in val_bar:
                 inputs, labels = inputs.to(device), labels.to(device)
                 
-                # Forward pass
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 
-                # Statistics
                 running_loss += loss.item() * inputs.size(0)
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
@@ -210,36 +183,28 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_losses.append(epoch_val_loss)
         val_accuracies.append(epoch_val_acc)
         
-        # Print epoch summary
         print(f"Epoch {epoch+1}/{num_epochs}: "
               f"Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_acc:.2f}% | "
               f"Val Loss: {epoch_val_loss:.4f}, Val Acc: {epoch_val_acc:.2f}%")
         
-        # Learning rate scheduler step
         scheduler.step(epoch_val_loss)
     
     return train_losses, val_losses, train_accuracies, val_accuracies
 
-# Define number of epochs
 num_epochs = 10
 
-# Wrap the main execution in the if __name__ == "__main__" block to fix multiprocessing issues
 def main():
-    # Train the model
     print("Starting training...")
     train_losses, val_losses, train_accuracies, val_accuracies = train_model(
         model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs
     )
 
-    # Save the model
     model_save_path = "garbage_classification_model.pth"
     torch.save(model.state_dict(), model_save_path)
     print(f"Model saved to {model_save_path}")
 
-    # Plot training and validation curves
     plt.figure(figsize=(12, 5))
 
-    # Loss plot
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label='Train Loss')
     plt.plot(val_losses, label='Validation Loss')
@@ -248,7 +213,6 @@ def main():
     plt.legend()
     plt.title('Training and Validation Loss')
 
-    # Accuracy plot
     plt.subplot(1, 2, 2)
     plt.plot(train_accuracies, label='Train Accuracy')
     plt.plot(val_accuracies, label='Validation Accuracy')
@@ -261,7 +225,6 @@ def main():
     plt.savefig('training_curves.png')
     plt.show()
 
-    # Test the model
     def evaluate_model(model, test_loader):
         model.eval()
         correct = 0
@@ -284,11 +247,9 @@ def main():
                     class_correct[label] += c[i].item()
                     class_total[label] += 1
         
-        # Overall accuracy
         overall_acc = 100. * correct / total
         print(f"\nTest Accuracy: {overall_acc:.2f}%")
         
-        # Per-class accuracy
         print("\nPer-class Accuracy:")
         for i in range(num_classes):
             acc = 100. * class_correct[i] / class_total[i] if class_total[i] > 0 else 0
@@ -296,11 +257,9 @@ def main():
         
         return overall_acc, class_correct, class_total
 
-    # Evaluate the model on the test set
     print("\nEvaluating model on test set...")
     overall_acc, class_correct, class_total = evaluate_model(model, test_loader)
 
-    # Visualization of per-class accuracy
     plt.figure(figsize=(12, 6))
     per_class_acc = [100. * class_correct[i] / class_total[i] if class_total[i] > 0 else 0 for i in range(num_classes)]
     plt.bar(classes, per_class_acc)
@@ -312,7 +271,6 @@ def main():
     plt.savefig('per_class_accuracy.png')
     plt.show()
 
-    # Function to predict a single image
     def predict_image(image_path, model, transform):
         image = Image.open(image_path).convert("RGB")
         image_tensor = transform(image).unsqueeze(0).to(device)
@@ -327,9 +285,7 @@ def main():
 
     print("Done!")
 
-# This is the key fix for your multiprocessing error
 if __name__ == "__main__":
-    # Add multiprocessing support for Windows
     import multiprocessing
     multiprocessing.freeze_support()
     main()
