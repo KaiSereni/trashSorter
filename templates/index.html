@@ -56,6 +56,94 @@
         .hidden {
             display: none;
         }
+        #feedbackModal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 450px;
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            z-index: 1000;
+            text-align: left;
+        }
+        #feedbackModal h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            text-align: center;
+        }
+        #feedbackModal label {
+            display: block;
+            margin: 10px 0 5px;
+        }
+        #feedbackModal input[type="radio"] {
+            margin-right: 8px;
+        }
+        #feedbackModal button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 15px;
+        }
+        #submitFeedbackBtn {
+            background-color: #3498db;
+            color: white;
+            margin-right: 10px;
+        }
+        #submitFeedbackBtn:hover {
+            background-color: #2980b9;
+        }
+        #closeFeedbackBtn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #aaa;
+        }
+        #closeFeedbackBtn:hover {
+            color: #333;
+        }
+        #modalBackdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+        #analyticsSummary {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: left;
+            font-size: 14px;
+            color: #555;
+        }
+        #analyticsSummary h3 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        #analyticsSummary ul {
+            list-style: none;
+            padding: 0;
+        }
+        #analyticsSummary li {
+            margin-bottom: 5px;
+        }
+        #analyticsSummary strong {
+            display: inline-block;
+            width: 150px;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +163,29 @@
             <div id="prediction"></div>
             <div id="cameraStatus"></div>
         </div>
+
+        <div id="analyticsSummary">
+            <h3>Scan Analytics</h3>
+            <ul id="analyticsList">
+                <li>Loading analytics...</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="modalBackdrop" class="hidden"></div>
+    <div id="feedbackModal" class="hidden">
+        <button id="closeFeedbackBtn">&times;</button>
+        <h3>Scan Complete!</h3>
+        <p>Did you experience any issues during the scan?</p>
+        <form id="feedbackForm">
+            <label><input type="radio" name="feedback" value="no_problems" checked> No problems</label>
+            <label><input type="radio" name="feedback" value="poor_camera"> Poor camera quality</label>
+            <label><input type="radio" name="feedback" value="incorrect_id"> Incorrect item identification</label>
+            <label><input type="radio" name="feedback" value="incorrect_bin"> Incorrect bin suggestion</label>
+            <label><input type="radio" name="feedback" value="slow_scan"> Scanning was slow</label>
+            <label><input type="radio" name="feedback" value="other"> Other issue</label>
+            <button type="button" id="submitFeedbackBtn">Submit Feedback</button>
+        </form>
     </div>
 
     <script>
@@ -85,45 +196,50 @@
         const predictionDiv = document.getElementById('prediction');
         const timerDiv = document.getElementById('timer');
         const cameraStatusDiv = document.getElementById('cameraStatus');
-        
+        const feedbackModal = document.getElementById('feedbackModal');
+        const modalBackdrop = document.getElementById('modalBackdrop');
+        const closeFeedbackBtn = document.getElementById('closeFeedbackBtn');
+        const submitFeedbackBtn = document.getElementById('submitFeedbackBtn');
+        const feedbackForm = document.getElementById('feedbackForm');
+        const analyticsList = document.getElementById('analyticsList');
+
         let scanInterval = null;
         let timerInterval = null;
+        let feedbackTimeout = null;
         let timeLeft = 15;
-        
+
         startBtn.addEventListener('click', startScanning);
-        
-        // Add event listeners to detect if video is working
+        closeFeedbackBtn.addEventListener('click', () => closeFeedbackModal(true));
+        submitFeedbackBtn.addEventListener('click', submitFeedback);
+
+        document.addEventListener('DOMContentLoaded', fetchAnalytics);
+
         videoFeed.addEventListener('load', () => {
             cameraStatusDiv.textContent = "Camera feed connected";
             cameraStatusDiv.style.color = "green";
         });
-        
+
         videoFeed.addEventListener('error', (e) => {
             cameraStatusDiv.textContent = "Error loading camera feed. Check console for details.";
             cameraStatusDiv.style.color = "red";
             console.error("Video feed error:", e);
         });
-        
+
         function startScanning() {
-            // Reset camera status
             cameraStatusDiv.textContent = "Connecting to camera...";
             cameraStatusDiv.style.color = "blue";
             
-            // Call API to start scanning
             fetch('/start_scan')
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === "started") {
-                        // Show camera feed, hide placeholder
                         videoContainer.classList.remove('hidden');
                         placeholderImg.classList.add('hidden');
                         startBtn.disabled = true;
                         
-                        // Force reload the video feed src to ensure a fresh connection
                         const timestamp = new Date().getTime();
                         videoFeed.src = `/video_feed?t=${timestamp}`;
                         
-                        // Start timer display
                         timeLeft = 15;
                         timerDiv.textContent = `Time remaining: ${timeLeft}s`;
                         timerDiv.classList.remove('hidden');
@@ -137,7 +253,6 @@
                             }
                         }, 1000);
                         
-                        // Poll status for updates
                         scanInterval = setInterval(checkStatus, 500);
                     }
                 })
@@ -146,37 +261,83 @@
                     cameraStatusDiv.style.color = "red";
                 });
         }
-        
+
         function stopScanning() {
-            // Clear intervals
             clearInterval(scanInterval);
             clearInterval(timerInterval);
             
-            // Call API to stop scanning
             fetch('/stop_scan')
                 .then(response => response.json())
                 .then(data => {
-                    // Hide camera feed, show placeholder
                     videoContainer.classList.add('hidden');
                     placeholderImg.classList.remove('hidden');
                     startBtn.disabled = false;
                     timerDiv.classList.add('hidden');
+                    showFeedbackModal();
                 });
         }
-        
+
         function checkStatus() {
             fetch('/status')
                 .then(response => response.json())
                 .then(data => {
-                    // Update prediction display
                     if (data.prediction.class) {
                         predictionDiv.innerHTML = `<strong>${data.prediction.class}</strong>: ${data.prediction.prob.toFixed(1)}%<br>Place in the <strong>${data.prediction.bin}</strong> bin`;
                     }
                     
-                    // Check if scanning has stopped
                     if (!data.scanning) {
                         stopScanning();
                     }
+                });
+        }
+
+        function showFeedbackModal() {
+            feedbackModal.classList.remove('hidden');
+            modalBackdrop.classList.remove('hidden');
+            feedbackForm.reset();
+
+            clearTimeout(feedbackTimeout);
+            feedbackTimeout = setTimeout(() => {
+                closeFeedbackModal(false);
+            }, 10000);
+        }
+
+        function closeFeedbackModal(manualClose) {
+            clearTimeout(feedbackTimeout);
+            feedbackModal.classList.add('hidden');
+            modalBackdrop.classList.add('hidden');
+            fetchAnalytics();
+        }
+
+        function submitFeedback() {
+            clearTimeout(feedbackTimeout);
+            const selectedFeedback = feedbackForm.querySelector('input[name="feedback"]:checked');
+            if (selectedFeedback) {
+                fetch('/submit_feedback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ feedback: selectedFeedback.value }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    fetchAnalytics();
+                });
+            }
+            feedbackModal.classList.add('hidden');
+            modalBackdrop.classList.add('hidden');
+        }
+
+        function fetchAnalytics() {
+            fetch('/get_analytics')
+                .then(response => response.json())
+                .then(data => {
+                    let html = `<li><strong>Total Scans:</strong> ${data.total_scans}</li>`;
+                    for (const [key, value] of Object.entries(data.feedback_counts)) {
+                        html += `<li><strong>${key.replace('_', ' ')}:</strong> ${value}</li>`;
+                    }
+                    analyticsList.innerHTML = html;
                 });
         }
     </script>
