@@ -551,7 +551,7 @@ if __name__ == "__main__":
                 .then(response => response.json())
                 .then(data => {
                     if (data.prediction.class) {
-                        predictionDiv.innerHTML = `<strong>${data.prediction.class}</strong>: ${data.prediction.prob.toFixed(1)}%<br>Place in the <strong>${data.prediction.bin}</strong> bin`;
+                        predictionDiv.innerHTML = `<strong>${data.prediction.class}</strong>: ${data.prediction.prob.toFixed(1)}%<br>${data.prediction.bin}`;
                     }
                     
                     if (!data.scanning) {
